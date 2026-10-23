@@ -127691,7 +127691,7 @@ export namespace Schemas {
 
     export type DataModelingJobsListParams = {
     /**
-     * Include jobs started at or after this time.
+     * Include jobs finished at or after this time.
      */
     after?: string;
     /**
@@ -127699,7 +127699,7 @@ export namespace Schemas {
      */
     all_engines?: boolean;
     /**
-     * Include jobs started before this time.
+     * Include jobs finished before this time.
      */
     before?: string;
     /**
