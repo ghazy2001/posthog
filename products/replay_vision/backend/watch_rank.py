@@ -88,6 +88,9 @@ _DUPLICATE_QUERY_TIMEOUT_S = 10
 WATCH_PICK_MIN_PERCENTILE = 0.8
 WATCH_PICK_MIN_SCANNER_ROWS = 10
 WATCH_PICK_SEEN_PENALTY = 0.3
+# Each earlier impression keeps this share of a pick's score, so a pick shown three times without a
+# click sinks below a fresh one.
+WATCH_PICK_IMPRESSION_DECAY = 0.8
 
 _ANCHOR_CACHE_TTL_S = 7 * 24 * 3600
 
@@ -246,13 +249,13 @@ def _scanner_percentiles(rows: list[dict[str, Any]]) -> dict[str, float]:
 
 
 def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
-    """Rank candidate rows (`id`, `scanner_id`, `created_at`, `watch_rank`, `feed_viewed`) on the
-    embedding rank the scan workflow wrote.
+    """Rank candidate rows (`id`, `scanner_id`, `created_at`, `watch_rank`, `feed_viewed`, and
+    optionally `feed_impressions`) on the embedding rank the scan workflow wrote.
 
     A pick is a row in its scanner's top fifth by score whose category is an issue. Near-duplicates
     collapse to their best-scoring row, which carries the size of the group. Picks sort by weighted
-    percentile, viewed rows docked, one scanner held to a share of the picks. Every other row is
-    filler, trimmed to the same floor as the other rankers.
+    percentile, decayed for each earlier impression, viewed rows docked, one scanner held to a share
+    of the picks. Every other row is filler, trimmed to the same floor as the other rankers.
     """
     percentiles = _scanner_percentiles(rows)
     best_in_group: dict[str, tuple[float, float, dict[str, Any]]] = {}
@@ -266,7 +269,11 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
         # Group before the cutoff, so duplicates below it still count toward the group and never return as filler.
         group = rank.get("duplicate_of") or observation_id
         group_members.setdefault(group, []).append(observation_id)
-        score = percentile * CATEGORY_WEIGHT[rank["category"]]
+        score = (
+            percentile
+            * CATEGORY_WEIGHT[rank["category"]]
+            * WATCH_PICK_IMPRESSION_DECAY ** row.get("feed_impressions", 0)
+        )
         if row.get("feed_viewed"):
             score -= WATCH_PICK_SEEN_PENALTY
         if group not in best_in_group or score > best_in_group[group][0]:
